@@ -1,0 +1,3 @@
+!pip install streamlit pymupdf sentence-transformers torch scipy "On Seperate Cell in the google collab"
+"And then run this command !wget -q -O - ipv4.icanhazip.com on seperate cell"
+"At last run this !streamlit run app.py & npx localtunnel --port 8501 which redirect to a website"
