@@ -1,3 +1,4 @@
+%%writefile app.py
 import fitz  # PyMuPDF
 import re
 import streamlit as st
