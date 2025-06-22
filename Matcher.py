@@ -53,7 +53,6 @@ def compare_resume_with_job(resume_text, job_desc, skills_list):
     if not resume_text or not job_desc:
         return None, [], []
 
-    # 🔄 Add prefixes for E5-style models
     resume_embedding = model.encode("passage: " + resume_text, convert_to_tensor=True)
     jd_embedding = model.encode("query: " + job_desc, convert_to_tensor=True)
 
@@ -61,6 +60,28 @@ def compare_resume_with_job(resume_text, job_desc, skills_list):
     matched_skills, missing_skills = extract_skills(resume_text, job_desc, skills_list)
     return similarity, matched_skills, missing_skills
 
+# ------------------ Section Presence Checker ------------------ #
+def check_sections(text):
+    sections = {
+        "Education": ["education", "academic background", "qualifications"],
+        "Experience": ["experience", "work history", "employment"],
+        "Projects": ["projects", "project work", "portfolio"],
+        "Skills": ["skills", "technical skills", "core competencies"],
+        "Summary": ["summary", "profile", "objective"],
+        "Certifications": ["certifications", "licenses"]
+    }
+    found = []
+    missing = []
+    text = text.lower()
+
+    for section, keywords in sections.items():
+        if any(keyword in text for keyword in keywords):
+            found.append(section)
+        else:
+            missing.append(section)
+
+    score = round(len(found) / len(sections) * 100)
+    return found, missing, score
 
 # ------------------ Animated Horizontal Bar ------------------ #
 def custom_animated_bar(label, value, color_from, color_to):
@@ -117,6 +138,33 @@ def animated_gauge(label, value, color):
     fig.update_layout(height=300)
     st.plotly_chart(fig, use_container_width=True)
 
+# ------------------ Dynamic Recommendations ------------------ #
+def generate_recommendations(scores, missing_skills, missing_sections):
+    recs = []
+
+    if scores["🎯 Tailoring (Skill Match)"] < 60:
+        recs.append("🔍 Improve keyword matching with the job description.")
+
+    if scores["🧠 Content (Semantic Match)"] < 60:
+        recs.append("🧠 Better align your resume's content with job responsibilities.")
+
+    if missing_skills:
+        recs.append(f"❌ Add these missing skills: {', '.join(missing_skills)}.")
+
+    if scores["🎨 Style (Bullet Points)"] < 70:
+        recs.append("🎨 Use bullet points consistently and avoid large text blocks.")
+
+    if scores["⚙️ ATS Compatibility"] < 80:
+        recs.append("⚙️ Avoid tables/graphics. Use standard fonts and section titles.")
+
+    if missing_sections:
+        recs.append(f"📄 Add missing sections: {', '.join(missing_sections)}.")
+
+    if not recs:
+        recs.append("✅ Your resume looks well-prepared!")
+
+    return recs
+
 # ------------------ Streamlit UI ------------------ #
 st.title("📄 Resume to Job Description Matcher")
 st.write("Upload your resume (PDF) and paste a job description to analyze how well they match.")
@@ -139,6 +187,8 @@ if uploaded_file and job_desc:
                 st.error("Failed to extract text from PDF.")
             else:
                 score, matched_skills, missing_skills = compare_resume_with_job(resume_text, job_desc, skills_list)
+                found_sections, missing_sections, section_score = check_sections(resume_text)
+
                 if score is not None:
                     overall_score = round(score * 100)
 
@@ -146,9 +196,9 @@ if uploaded_file and job_desc:
                     scores = {
                         "🎯 Tailoring (Skill Match)": overall_score,
                         "🧠 Content (Semantic Match)": round(len(matched_skills) / len(skills_list) * 100) if skills_list else 0,
-                        "🎨 Style (Bullet Points)": 86,
-                        "⚙️ ATS Compatibility": 100,
-                        "📄 Sections": 29
+                        "🎨 Style (Bullet Points)": 86,  # Placeholder
+                        "⚙️ ATS Compatibility": 100,     # Placeholder
+                        "📄 Sections": section_score
                     }
 
                     # Show animated gauge
@@ -170,13 +220,11 @@ if uploaded_file and job_desc:
                         st.write("### 📝 Detailed Report")
                         st.markdown(f"**✅ Matched Skills:** {', '.join(matched_skills) if matched_skills else 'None'}")
                         st.markdown(f"**❌ Missing Skills:** {', '.join(missing_skills) if missing_skills else 'None'}")
-                        st.write("### Recommendations:")
-                        st.markdown("""
-                        - Tailor your resume to better reflect the job description.
-                        - Add missing technical or domain-specific skills.
-                        - Improve formatting and section organization.
-                        - Keep style consistent and concise.
-                        """)
+                        st.markdown(f"**📄 Missing Sections:** {', '.join(missing_sections) if missing_sections else 'None'}")
+
+                        st.write("### 📌 Real-Time Recommendations:")
+                        for rec in generate_recommendations(scores, missing_skills, missing_sections):
+                            st.markdown(f"- {rec}")
                 else:
                     st.error("Could not compute similarity score.")
 else:
