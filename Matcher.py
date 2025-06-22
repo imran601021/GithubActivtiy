@@ -1,3 +1,4 @@
+
 # -------------------- FILE: app.py --------------------
 %%writefile app.py
 import fitz  # PyMuPDF
@@ -6,6 +7,7 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer, util
 import uuid
 import plotly.graph_objects as go
+import language_tool_python
 
 # ------------------ Streamlit Page Setup ------------------ #
 st.set_page_config(page_title="Resume Analyzer", layout="centered")
@@ -60,28 +62,30 @@ def compare_resume_with_job(resume_text, job_desc, skills_list):
     matched_skills, missing_skills = extract_skills(resume_text, job_desc, skills_list)
     return similarity, matched_skills, missing_skills
 
-# ------------------ Section Presence Checker ------------------ #
-def check_sections(text):
-    sections = {
-        "Education": ["education", "academic background", "qualifications"],
-        "Experience": ["experience", "work history", "employment"],
-        "Projects": ["projects", "project work", "portfolio"],
-        "Skills": ["skills", "technical skills", "core competencies"],
-        "Summary": ["summary", "profile", "objective"],
-        "Certifications": ["certifications", "licenses"]
-    }
-    found = []
-    missing = []
-    text = text.lower()
+# ------------------ Grammar Checking ------------------ #
+def check_grammar(text):
+    tool = language_tool_python.LanguageTool('en-US')
+    matches = tool.check(text)
+    issues = []
+    for match in matches:
+        issues.append(f"{match.message} (Rule: {match.ruleId})")
+    return issues
 
-    for section, keywords in sections.items():
-        if any(keyword in text for keyword in keywords):
-            found.append(section)
-        else:
-            missing.append(section)
+# ------------------ Formatting Checks ------------------ #
+def check_formatting(text):
+    issues = []
 
-    score = round(len(found) / len(sections) * 100)
-    return found, missing, score
+    if text.count("•") < 3 and text.count("- ") < 3:
+        issues.append("Use more bullet points for better readability.")
+
+    if any(line.isupper() and len(line) > 10 for line in text.splitlines()):
+        issues.append("Avoid using ALL CAPS excessively.")
+
+    long_lines = [line for line in text.splitlines() if len(line) > 160]
+    if long_lines:
+        issues.append(f"{len(long_lines)} lines are too long. Try breaking them up.")
+
+    return issues
 
 # ------------------ Animated Horizontal Bar ------------------ #
 def custom_animated_bar(label, value, color_from, color_to):
@@ -103,20 +107,21 @@ def custom_animated_bar(label, value, color_from, color_to):
     st.markdown(f"<b>{label}</b>", unsafe_allow_html=True)
     st.markdown(keyframes, unsafe_allow_html=True)
 
-    st.markdown(f'''
-        <div style="background-color: #e0e0e0; border-radius: 10px; height: 24px; margin-bottom: 12px;">
-            <div class="bar-{bar_id}" style="
-                height: 100%;
-                background: linear-gradient(to right, {color_from}, {color_to});
-                border-radius: 10px;
-                text-align: center;
-                color: white;
-                font-weight: bold;
-                line-height: 24px;">
-                {value}%
-            </div>
+    bar_html = f"""
+    <div style="background-color: #e0e0e0; border-radius: 10px; height: 24px; margin-bottom: 12px;">
+        <div class="bar-{bar_id}" style="
+            height: 100%;
+            background: linear-gradient(to right, {color_from}, {color_to});
+            border-radius: 10px;
+            text-align: center;
+            color: white;
+            font-weight: bold;
+            line-height: 24px;">
+            {value}%
         </div>
-    ''', unsafe_allow_html=True)
+    </div>
+    """
+    st.markdown(bar_html, unsafe_allow_html=True)
 
 # ------------------ Gauge Meter ------------------ #
 def animated_gauge(label, value, color):
@@ -138,33 +143,6 @@ def animated_gauge(label, value, color):
     fig.update_layout(height=300)
     st.plotly_chart(fig, use_container_width=True)
 
-# ------------------ Dynamic Recommendations ------------------ #
-def generate_recommendations(scores, missing_skills, missing_sections):
-    recs = []
-
-    if scores["🎯 Tailoring (Skill Match)"] < 60:
-        recs.append("🔍 Improve keyword matching with the job description.")
-
-    if scores["🧠 Content (Semantic Match)"] < 60:
-        recs.append("🧠 Better align your resume's content with job responsibilities.")
-
-    if missing_skills:
-        recs.append(f"❌ Add these missing skills: {', '.join(missing_skills)}.")
-
-    if scores["🎨 Style (Bullet Points)"] < 70:
-        recs.append("🎨 Use bullet points consistently and avoid large text blocks.")
-
-    if scores["⚙️ ATS Compatibility"] < 80:
-        recs.append("⚙️ Avoid tables/graphics. Use standard fonts and section titles.")
-
-    if missing_sections:
-        recs.append(f"📄 Add missing sections: {', '.join(missing_sections)}.")
-
-    if not recs:
-        recs.append("✅ Your resume looks well-prepared!")
-
-    return recs
-
 # ------------------ Streamlit UI ------------------ #
 st.title("📄 Resume to Job Description Matcher")
 st.write("Upload your resume (PDF) and paste a job description to analyze how well they match.")
@@ -172,6 +150,7 @@ st.write("Upload your resume (PDF) and paste a job description to analyze how we
 # Sidebar skill input
 user_skill_input = st.sidebar.text_input("Enter your skills (comma-separated)", "")
 skills_list = [s.strip().lower() for s in user_skill_input.split(",") if s.strip()]
+enable_feedback = st.sidebar.checkbox("Enable Grammar & Formatting Feedback", value=True)
 
 # Upload & JD
 uploaded_file = st.file_uploader("Upload Resume PDF", type=["pdf"])
@@ -187,24 +166,19 @@ if uploaded_file and job_desc:
                 st.error("Failed to extract text from PDF.")
             else:
                 score, matched_skills, missing_skills = compare_resume_with_job(resume_text, job_desc, skills_list)
-                found_sections, missing_sections, section_score = check_sections(resume_text)
-
                 if score is not None:
                     overall_score = round(score * 100)
 
-                    # Component Scores
                     scores = {
                         "🎯 Tailoring (Skill Match)": overall_score,
                         "🧠 Content (Semantic Match)": round(len(matched_skills) / len(skills_list) * 100) if skills_list else 0,
-                        "🎨 Style (Bullet Points)": 86,  # Placeholder
-                        "⚙️ ATS Compatibility": 100,     # Placeholder
-                        "📄 Sections": section_score
+                        "🎨 Style (Bullet Points)": 86,
+                        "⚙️ ATS Compatibility": 100,
+                        "📄 Sections": 29
                     }
 
-                    # Show animated gauge
                     animated_gauge("🧮 Overall Resume Score", overall_score, "#4CAF50")
 
-                    # Show horizontal bars
                     gradients = [
                         ("#f2709c", "#ff9472"),
                         ("#00c6ff", "#0072ff"),
@@ -220,11 +194,32 @@ if uploaded_file and job_desc:
                         st.write("### 📝 Detailed Report")
                         st.markdown(f"**✅ Matched Skills:** {', '.join(matched_skills) if matched_skills else 'None'}")
                         st.markdown(f"**❌ Missing Skills:** {', '.join(missing_skills) if missing_skills else 'None'}")
-                        st.markdown(f"**📄 Missing Sections:** {', '.join(missing_sections) if missing_sections else 'None'}")
 
-                        st.write("### 📌 Real-Time Recommendations:")
-                        for rec in generate_recommendations(scores, missing_skills, missing_sections):
-                            st.markdown(f"- {rec}")
+                        if enable_feedback:
+                            grammar_issues = check_grammar(resume_text)
+                            formatting_issues = check_formatting(resume_text)
+
+                            if grammar_issues:
+                                st.write("### 🛠️ Grammar Issues Found:")
+                                for issue in grammar_issues[:10]:
+                                    st.markdown(f"- {issue}")
+                            else:
+                                st.success("✅ No major grammar issues found!")
+
+                            if formatting_issues:
+                                st.write("### 🧾 Formatting Suggestions:")
+                                for issue in formatting_issues:
+                                    st.markdown(f"- {issue}")
+                            else:
+                                st.success("✅ Formatting looks clean!")
+
+                        st.write("### Recommendations:")
+                        st.markdown("""
+                        - Tailor your resume to better reflect the job description.
+                        - Add missing technical or domain-specific skills.
+                        - Improve formatting and section organization.
+                        - Keep style consistent and concise.
+                        """)
                 else:
                     st.error("Could not compute similarity score.")
 else:
