@@ -13,7 +13,7 @@ st.set_page_config(page_title="Resume Analyzer", layout="centered")
 # ------------------ Load SentenceTransformer Model ------------------ #
 @st.cache_resource
 def load_model():
-    return SentenceTransformer("all-mpnet-base-v2")
+    return SentenceTransformer("intfloat/e5-large-v2")
 
 model = load_model()
 
@@ -49,13 +49,18 @@ def extract_skills(resume_text, job_desc, skills_list):
 def compare_resume_with_job(resume_text, job_desc, skills_list):
     resume_text = preprocess_text(resume_text)
     job_desc = preprocess_text(job_desc)
+
     if not resume_text or not job_desc:
         return None, [], []
-    resume_embedding = model.encode(resume_text, convert_to_tensor=True)
-    jd_embedding = model.encode(job_desc, convert_to_tensor=True)
+
+    # 🔄 Add prefixes for E5-style models
+    resume_embedding = model.encode("passage: " + resume_text, convert_to_tensor=True)
+    jd_embedding = model.encode("query: " + job_desc, convert_to_tensor=True)
+
     similarity = util.cos_sim(resume_embedding, jd_embedding).item()
     matched_skills, missing_skills = extract_skills(resume_text, job_desc, skills_list)
     return similarity, matched_skills, missing_skills
+
 
 # ------------------ Animated Horizontal Bar ------------------ #
 def custom_animated_bar(label, value, color_from, color_to):
